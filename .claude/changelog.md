@@ -9,6 +9,14 @@ Purpose: Running log of all notable changes, features, and workflow updates.
 
 ## [Unreleased]
 
+### Changed
+
+- Upgraded minimum Node.js version from v18 to v24 LTS (v18 reached EOL April 2025)
+- Added `.nvmrc` pinning Node 24 for nvm/fnm users
+- Added `engines` field to `package.json` enforcing Node >=24.0.0
+- Filled in `infra.md` with actual project runtime, framework, and architecture details
+- Filled in `sbom.md` technology stack table (Node 24.x, Express ^4.21.0, Chokidar ^3.6.0)
+
 ### Added
 
 - Initial project scaffold from vibe-md-templates + VEAP best practices

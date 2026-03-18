@@ -20,7 +20,7 @@ Built for anyone using [Claude Code](https://docs.anthropic.com/en/docs/claude-c
 
 ## Prerequisites
 
-- **Node.js** v18+
+- **Node.js** v24+ (LTS)
 - **Claude Code CLI** installed and configured (this reads Claude Code's local data files)
 - **Ghostty** terminal emulator (optional, for the session resume/launch feature -- macOS only)
 
@@ -182,7 +182,7 @@ All endpoints return JSON.
 
 ## Tech Stack
 
-- **Server:** Node.js + Express
+- **Server:** Node.js 24 LTS + Express
 - **Frontend:** React 18 (via CDN, no build step)
 - **File watching:** Chokidar
 - **Styling:** Custom CSS with IBM Plex Mono
