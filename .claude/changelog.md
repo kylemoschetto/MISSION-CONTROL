@@ -9,6 +9,11 @@ Purpose: Running log of all notable changes, features, and workflow updates.
 
 ## [Unreleased]
 
+### Added
+
+- Story 1: Subagent Usage Breakdown per Project — PRD story with 6 acceptance criteria
+- Beads epic `lg8` with 5 child issues (lg8.1–lg8.5) and dependency chain for Story 1
+
 ### Fixed
 
 - Subagent JSONL files (`{uuid}/subagents/*.jsonl`) were never scanned, hiding sonnet/haiku usage and undercounting tokens, costs, and tool calls
