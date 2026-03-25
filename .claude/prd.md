@@ -41,6 +41,33 @@ Purpose: This file defines what we are building and for whom.
 
 ---
 
+### Story 2: Configurable Terminal Emulator for Session Launch
+
+**As a** developer using MISSION-CONTROL on Linux,
+**I want to** configure which terminal emulator opens when I click "Launch" to resume a session,
+**so that** I can use my preferred terminal (Alacritty, COSMIC Terminal, etc.) instead of being locked to Ghostty.
+
+**Notes:**
+- The current `server/restore.js` hardcodes Ghostty via AppleScript (macOS-only). This story adds Linux support by introducing a configurable terminal setting.
+- The existing macOS/Ghostty path continues to work as-is; this adds a parallel Linux launch path.
+- Configuration lives in `config.json` as a `terminal` key (e.g., `"terminal": "alacritty"`).
+- Default remains `ghostty`. The app maps known terminal names to their launch commands internally.
+- Supported terminals at minimum: `ghostty`, `alacritty`, `cosmic-term`, `kitty`.
+
+**Acceptance Criteria:**
+
+1. `config.json` accepts a `terminal` field. When absent, defaults to `ghostty`.
+2. The server maps known terminal names to platform-appropriate launch commands (e.g., `alacritty -e` on Linux).
+3. Clicking "Launch" in the UI opens the configured terminal and resumes the session in the correct project directory.
+4. The macOS AppleScript path for Ghostty remains functional and is used when the platform is macOS and terminal is `ghostty`.
+5. If the configured terminal is not found on `$PATH`, the server returns a clear error to the UI.
+6. New launch logic is covered by tests.
+
+* **Story 2:** As a developer using MISSION-CONTROL on Linux, I want to configure which terminal emulator opens when I click "Launch" to resume a session, so that I can use my preferred terminal instead of being locked to Ghostty.
+    * Feature name: `terminal_config`
+
+---
+
 ## 3. The Look and Feel
 
 > Visual style, key screens, and UX patterns will be defined here.
