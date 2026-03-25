@@ -3,6 +3,23 @@ const readline = require('readline');
 const cost = require('./cost');
 
 /**
+ * Pick the model with the highest total token usage.
+ * Falls back to first model in the set if no token data.
+ */
+function pickPrimaryModel(tokensByModel, models) {
+  const entries = Object.entries(tokensByModel);
+  if (entries.length > 0) {
+    return entries
+      .sort((a, b) => {
+        const totalA = a[1].input + a[1].output + a[1].cacheRead + a[1].cacheWrite;
+        const totalB = b[1].input + b[1].output + b[1].cacheRead + b[1].cacheWrite;
+        return totalB - totalA;
+      })[0][0];
+  }
+  return models.size > 0 ? Array.from(models)[0] : 'unknown';
+}
+
+/**
  * Parse a session JSONL file and extract metrics
  * Returns: { sessionId, metrics, summary, timestamps, models }
  */
@@ -154,7 +171,7 @@ async function parseSessionFile(filePath) {
     firstTimestamp,
     lastTimestamp,
     models: Array.from(models),
-    primaryModel: models.size > 0 ? Array.from(models)[0] : 'unknown',
+    primaryModel: pickPrimaryModel(metrics.tokensByModel, models),
     metrics,
     timeSaved: cost.calculateTimeSaved(metrics.totalDurationMs)
   };
