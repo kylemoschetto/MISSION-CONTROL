@@ -11,6 +11,11 @@ Purpose: Running log of all notable changes, features, and workflow updates.
 
 ### Added
 
+- Story 2: Configurable Terminal Emulator for Session Launch — PRD story, FRAGO, and beads epic `l2d` with 5 child issues (l2d.1–l2d.5) across 3 convoys
+  - Adds `terminal` config key (default: ghostty) for Linux terminal selection
+  - Supports ghostty, alacritty, cosmic-term, kitty
+  - Linux support first; macOS AppleScript path preserved
+
 - Story 1: Subagent Usage Breakdown per Project — all 6 acceptance criteria implemented
   - `mergeSubagentMetrics()` increments `subagentCount` on parent session
   - `aggregateSessions()` returns `totalSubagentCount` across sessions
