@@ -1,5 +1,5 @@
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const STATE_PATH = path.join(__dirname, '..', 'session-state.json');
 
@@ -67,7 +67,7 @@ function setSummary(sessionId, summary) {
 
 function getSummary(sessionId) {
   const entry = get().sessions[sessionId];
-  return entry && entry.summary != null ? entry.summary : null;
+  return entry?.summary != null ? entry.summary : null;
 }
 
 module.exports = { load, get, save, setStatus, getStatus, getWipSessions, setSummary, getSummary };

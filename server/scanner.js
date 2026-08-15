@@ -1,5 +1,6 @@
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const config = require('./config');
 const parser = require('./parser');
 
@@ -8,7 +9,19 @@ const parser = require('./parser');
  * /home/user/projects/MyApp -> -home-user-projects-MyApp
  */
 function encodeProjectPath(projectPath) {
-  return projectPath.replace(/\//g, '-');
+  return projectPath.replaceAll('/', '-');
+}
+
+/**
+ * Resolve a path and reject it unless it stays within baseDir.
+ * Guards filesystem access against traversal from user-controlled input.
+ * Returns the resolved absolute path, or null if it escapes the base.
+ */
+function resolveWithin(baseDir, candidate) {
+  const base = path.resolve(baseDir);
+  const resolved = path.resolve(base, candidate);
+  if (resolved !== base && !resolved.startsWith(base + path.sep)) return null;
+  return resolved;
 }
 
 /**
@@ -17,10 +30,11 @@ function encodeProjectPath(projectPath) {
  */
 function discoverProjects() {
   const cfg = config.get();
-  const scanPath = cfg.scanPath;
+  // scanPath is user-configurable; contain it within the home directory
+  const scanPath = resolveWithin(os.homedir(), cfg.scanPath);
   const claudeDir = cfg.claudeDir;
 
-  if (!fs.existsSync(scanPath)) return [];
+  if (!scanPath || !fs.existsSync(scanPath)) return [];
 
   const entries = fs.readdirSync(scanPath, { withFileTypes: true });
   const projects = [];
@@ -56,49 +70,60 @@ function discoverProjects() {
  * {uuid}/subagents/*.jsonl, linking subagents to their parent session.
  */
 function listSessionFiles(sessionsDir) {
-  if (!fs.existsSync(sessionsDir)) return [];
+  // sessionsDir may be built from a user-supplied encoded path;
+  // contain it within the Claude projects dir
+  const safeDir = resolveWithin(path.join(config.get().claudeDir, 'projects'), sessionsDir);
+  if (!safeDir || !fs.existsSync(safeDir)) return [];
 
-  const entries = fs.readdirSync(sessionsDir);
+  const entries = fs.readdirSync(safeDir);
   const sessions = [];
 
   for (const entry of entries) {
     if (!entry.endsWith('.jsonl')) continue;
-    const filePath = path.join(sessionsDir, entry);
+    const filePath = path.join(safeDir, entry);
     const stat = fs.statSync(filePath);
     // Skip tiny files (< 100 bytes)
     if (stat.size < 100) continue;
 
     const sessionId = entry.replace('.jsonl', '');
-    sessions.push({
-      id: sessionId,
-      filePath,
-      size: stat.size,
-      modified: stat.mtime
-    });
-
-    // Check for subagent files in {uuid}/subagents/
-    const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
-    if (fs.existsSync(subagentsDir)) {
-      const subEntries = fs.readdirSync(subagentsDir);
-      for (const subEntry of subEntries) {
-        if (!subEntry.endsWith('.jsonl')) continue;
-        const subPath = path.join(subagentsDir, subEntry);
-        const subStat = fs.statSync(subPath);
-        if (subStat.size < 100) continue;
-
-        sessions.push({
-          id: subEntry.replace('.jsonl', ''),
-          filePath: subPath,
-          size: subStat.size,
-          modified: subStat.mtime,
-          parentSessionId: sessionId
-        });
-      }
-    }
+    sessions.push(
+      {
+        id: sessionId,
+        filePath,
+        size: stat.size,
+        modified: stat.mtime
+      },
+      ...listSubagentFiles(safeDir, sessionId)
+    );
   }
 
   // Sort newest first
   return sessions.sort((a, b) => b.modified - a.modified);
+}
+
+/**
+ * List a session's subagent JSONL files from {sessionsDir}/{sessionId}/subagents/.
+ */
+function listSubagentFiles(sessionsDir, sessionId) {
+  const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
+  if (!fs.existsSync(subagentsDir)) return [];
+
+  const subagents = [];
+  for (const subEntry of fs.readdirSync(subagentsDir)) {
+    if (!subEntry.endsWith('.jsonl')) continue;
+    const subPath = path.join(subagentsDir, subEntry);
+    const subStat = fs.statSync(subPath);
+    if (subStat.size < 100) continue;
+
+    subagents.push({
+      id: subEntry.replace('.jsonl', ''),
+      filePath: subPath,
+      size: subStat.size,
+      modified: subStat.mtime,
+      parentSessionId: sessionId
+    });
+  }
+  return subagents;
 }
 
 /**
@@ -200,11 +225,51 @@ function computePrimaryModel(parsed) {
     return;
   }
   parsed.primaryModel = entries
-    .sort((a, b) => {
+    .toSorted((a, b) => {
       const totalA = a[1].input + a[1].output + a[1].cacheRead + a[1].cacheWrite;
       const totalB = b[1].input + b[1].output + b[1].cacheRead + b[1].cacheWrite;
       return totalB - totalA;
     })[0][0];
+}
+
+/**
+ * Group subagent files by their parent session ID.
+ */
+function groupSubagentsByParent(subagentFiles) {
+  const byParent = {};
+  for (const sf of subagentFiles) {
+    if (!byParent[sf.parentSessionId]) {
+      byParent[sf.parentSessionId] = [];
+    }
+    byParent[sf.parentSessionId].push(sf);
+  }
+  return byParent;
+}
+
+/**
+ * Parse each subagent file and merge its metrics into the parent session.
+ */
+async function mergeSubagentFiles(parsed, subFiles) {
+  for (const subFile of subFiles) {
+    try {
+      const subParsed = await parser.parseSessionFile(subFile.filePath);
+      mergeSubagentMetrics(parsed, subParsed);
+    } catch (err) {
+      console.error(`Error parsing subagent ${subFile.filePath}: ${err.message}`);
+    }
+  }
+}
+
+/**
+ * Enrich the session summary from the history index when its display
+ * text is longer than the parsed summary.
+ */
+function applyHistorySummary(parsed, historyIndex) {
+  if (!parsed.sessionId || !historyIndex[parsed.sessionId]) return;
+  const histEntry = historyIndex[parsed.sessionId];
+  if (histEntry.display && (!parsed.summary || parsed.summary.length < histEntry.display.length)) {
+    parsed.summary = histEntry.display;
+  }
 }
 
 /**
@@ -214,16 +279,7 @@ function computePrimaryModel(parsed) {
 async function getProjectSessions(project, historyIndex) {
   const files = listSessionFiles(project.sessionsDir);
   const parentFiles = files.filter(f => !f.parentSessionId);
-  const subagentFiles = files.filter(f => f.parentSessionId);
-
-  // Group subagent files by parent session ID
-  const subagentsByParent = {};
-  for (const sf of subagentFiles) {
-    if (!subagentsByParent[sf.parentSessionId]) {
-      subagentsByParent[sf.parentSessionId] = [];
-    }
-    subagentsByParent[sf.parentSessionId].push(sf);
-  }
+  const subagentsByParent = groupSubagentsByParent(files.filter(f => f.parentSessionId));
 
   const sessions = [];
 
@@ -240,26 +296,12 @@ async function getProjectSessions(project, historyIndex) {
     try {
       const parsed = await parser.parseSessionFile(file.filePath);
 
-      // Parse and merge each subagent's metrics
-      for (const subFile of subFiles) {
-        try {
-          const subParsed = await parser.parseSessionFile(subFile.filePath);
-          mergeSubagentMetrics(parsed, subParsed);
-        } catch (err) {
-          console.error(`Error parsing subagent ${subFile.filePath}: ${err.message}`);
-        }
-      }
+      await mergeSubagentFiles(parsed, subFiles);
 
       // Recompute primaryModel after merging
       computePrimaryModel(parsed);
 
-      // Enrich summary from history index if available
-      if (parsed.sessionId && historyIndex[parsed.sessionId]) {
-        const histEntry = historyIndex[parsed.sessionId];
-        if (histEntry.display && (!parsed.summary || parsed.summary.length < histEntry.display.length)) {
-          parsed.summary = histEntry.display;
-        }
-      }
+      applyHistorySummary(parsed, historyIndex);
       parsed.encodedPath = project.encodedPath;
       parsed.projectName = project.name;
       parsed.projectPath = project.path;
@@ -273,6 +315,39 @@ async function getProjectSessions(project, historyIndex) {
   }
 
   return sessions;
+}
+
+/**
+ * Deduplicate sessions by sessionId, keeping the entry with the latest lastTimestamp.
+ * Sessions without a sessionId pass through unchanged.
+ */
+function dedupeBySessionId(sessions) {
+  const seen = new Map();
+
+  for (const s of sessions) {
+    // Sessions without sessionId pass through
+    if (!s.sessionId) {
+      continue;
+    }
+
+    const existing = seen.get(s.sessionId);
+    const newTimestamp = s.lastTimestamp || 0;
+    const existingTimestamp = existing ? (existing.lastTimestamp || 0) : -Infinity;
+
+    if (!existing || newTimestamp > existingTimestamp) {
+      seen.set(s.sessionId, s);
+    }
+  }
+
+  // Return deduped entries + all sessions without sessionId
+  const deduped = Array.from(seen.values());
+  for (const s of sessions) {
+    if (!s.sessionId) {
+      deduped.push(s);
+    }
+  }
+
+  return deduped;
 }
 
 /**
@@ -349,6 +424,7 @@ module.exports = {
   listSessionFiles,
   getActiveSessions,
   getProjectSessions,
+  dedupeBySessionId,
   aggregateSessions,
   sessionCache
 };

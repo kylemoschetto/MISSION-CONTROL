@@ -60,3 +60,9 @@
 # - linear.api-key
 # - github.org
 # - github.repo
+
+sync.remote: "git+ssh://git@github.com/jwp23/MISSION-CONTROL.git"
+repos:
+  primary: "."
+  additional:
+    - "/Users/jpresley/.beads-planning"

@@ -8,11 +8,13 @@ Built for anyone using [Claude Code](https://docs.anthropic.com/en/docs/claude-c
 
 - **Discovers projects automatically** by scanning a directory for Claude Code projects (anything with a `.claude/` folder)
 - **Parses session data** from Claude Code's JSONL files to extract token counts, costs, models used, tools called, and auto-generated summaries
-- **Calculates costs** per session using configurable model pricing (Opus, Sonnet, Haiku)
+- **Calculates costs** per session using pricing fetched from LiteLLM at startup and refreshed daily
 - **Estimates time saved** based on a configurable multiplier (e.g., "this would have taken 8x longer without Claude")
 - **Interactive charts** -- daily usage trends, model split over time, monthly spend vs. plan limits
-- **Session management** -- mark sessions as WIP/Complete, edit summaries, search across all sessions
-- **Resume sessions** -- launch a Claude Code `--resume` directly from the dashboard into Ghostty (macOS)
+- **Time-window filtering** -- drag horizontally on any chart (Grafana-style) to select a date range; all dashboard stats and tables instantly filter to your window. Hit Esc or the reset chip to clear.
+- **Beads integration** -- projects with a `.beads/` directory show BEADS (closed/created) and $/BEAD cost-per-bead metrics, aggregated across projects when none selected, read-only from `bd export`
+- **Session management** -- mark sessions as WIP/Complete, edit summaries, search across all sessions; adaptive layout hides lower-priority columns on smaller screens for legibility
+- **Resume sessions** -- launch a Claude Code `--resume` directly from the dashboard into your configured terminal
 
 ## Screenshot
 
@@ -22,7 +24,7 @@ Built for anyone using [Claude Code](https://docs.anthropic.com/en/docs/claude-c
 
 - **Node.js** v24+ (LTS)
 - **Claude Code CLI** installed and configured (this reads Claude Code's local data files)
-- **Ghostty** terminal emulator (optional, for the session resume/launch feature -- macOS only)
+- A supported terminal emulator (optional, for the session resume/launch feature): Ghostty, Alacritty, Kitty, COSMIC Terminal, or Zed
 
 MISSION-CONTROL is read-only against your Claude Code data. It reads `.jsonl` session files and process metadata but never modifies them.
 
@@ -87,23 +89,17 @@ Session data lives in `.jsonl` files inside those encoded directories. MISSION-C
 Each session file is a sequence of JSON lines containing user messages, assistant responses (with token usage), and system events. The parser extracts:
 
 - **Token counts** -- input, output, cache read, cache write (per model)
-- **Cost** -- calculated from token counts and configured pricing
+- **Cost** -- calculated from token counts and fetched pricing (date-aware; config override optional)
 - **Summary** -- auto-generated from the first few user messages and tool actions
 - **Duration** -- from first to last timestamp
 - **Tool usage** -- counts of Edit, Write, Bash, Grep, etc.
 - **Turn count** -- number of assistant responses
 
-### Cost Calculation
+### Pricing
 
-Pricing is configured per model in `config.json`. The defaults reflect current Claude API pricing:
+MISSION-CONTROL fetches Claude API pricing from LiteLLM's community JSON at startup and refreshes it every 24 hours while running. Prices are stored as dated entries in `pricing-history.json` (gitignored, seeded with a baseline on first run). This ensures historical sessions retain the pricing in effect on their date, rather than being repriced at current rates. The app is offline-safe — if LiteLLM is unreachable, it falls back to the last known historical pricing.
 
-| Model | Input | Output | Cache Read | Cache Write |
-|-------|-------|--------|------------|-------------|
-| Opus 4.6 | $15/M | $75/M | $1.50/M | $18.75/M |
-| Sonnet 4.6 | $3/M | $15/M | $0.30/M | $3.75/M |
-| Haiku 4.5 | $0.80/M | $4/M | $0.08/M | $1/M |
-
-Unknown models fall back to Sonnet pricing.
+The `pricing` key in `config.json` acts as a manual override for any model, useful when you need to test specific rates or apply custom adjustments. If you're upgrading and already have a `pricing` block in your `config.json`, it will override fetched pricing entirely — delete it unless you intend a manual override.
 
 ### Time Saved Estimation
 
@@ -118,15 +114,26 @@ The "time saved" metric uses a configurable multiplier representing how much lon
 
 The multiplier is adjustable from the dashboard's top bar.
 
-### Session Resume (macOS + Ghostty)
+### Session Resume
 
-Clicking "Launch" on a session triggers an AppleScript that:
+Clicking "Launch" on a session opens your configured terminal and resumes the Claude Code session. Set the `terminal` field in `config.json`:
 
-1. Activates Ghostty
-2. Opens a new terminal window
-3. Runs `cd /project/path && claude --resume <session-id>`
+```json
+{
+  "terminal": "alacritty"
+}
+```
 
-This requires macOS and [Ghostty](https://ghostty.org). If you use a different terminal, the session ID is copyable so you can resume manually with `claude --resume <id>`.
+| Terminal | Platform | Behavior |
+|----------|----------|----------|
+| `ghostty` (default) | macOS | AppleScript: opens Ghostty, creates new window, runs resume command |
+| `ghostty` | Linux | Spawns with `-e` flag, runs resume command |
+| `alacritty` | Any | Spawns with `-e` flag, runs resume command |
+| `kitty` | Any | Spawns with positional args, runs resume command |
+| `cosmic-term` | Linux | Opens in project directory; resume command available via "Copy Cmd" button |
+| `zeditor` | Any | Opens/focuses project in Zed; resume command available via "Copy Cmd" button |
+
+For terminals that don't support executing a command directly (cosmic-term, zeditor), the Launch button transitions to "Copy Cmd" so you can paste `claude --resume <id>` into the terminal yourself.
 
 ## Dashboard Features
 
@@ -178,12 +185,12 @@ All endpoints return JSON.
 | `PUT` | `/api/config` | Update configuration |
 | `PUT` | `/api/sessions/:id/status` | Set session status (wip/complete/null) |
 | `PUT` | `/api/sessions/:id/summary` | Edit session summary |
-| `POST` | `/api/restore/:id` | Resume session in Ghostty |
+| `POST` | `/api/restore/:id` | Resume session in configured terminal |
 
 ## Tech Stack
 
 - **Server:** Node.js 24 LTS + Express
-- **Frontend:** React 18 (via CDN, no build step)
+- **Frontend:** React 19 (via esm.sh CDN, no build step)
 - **File watching:** Chokidar
 - **Styling:** Custom CSS with IBM Plex Mono
 - **Dependencies:** 2 production packages (`express`, `chokidar`)

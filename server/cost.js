@@ -3,9 +3,9 @@ const config = require('./config');
 /**
  * Calculate cost for a single assistant message's usage object
  */
-function calculateMessageCost(usage, model) {
+function calculateMessageCost(usage, model, timestampMs) {
   if (!usage) return 0;
-  const pricing = config.getPricing(model);
+  const pricing = require('./pricing').getPricing(model, timestampMs);
   const perMillion = 1_000_000;
 
   const inputCost = ((usage.input_tokens || 0) / perMillion) * pricing.input;
